@@ -858,7 +858,19 @@ async def download_video(
                 raise Exception("No file was downloaded")
             
             output_file = downloaded_files[0]
-            filename = output_file.name
+            
+            # Generate proper filename with extension
+            title = info.get('title', 'video')
+            # Sanitize title for filename
+            safe_title = "".join(c for c in title if c.isalnum() or c in (' ', '-', '_')).strip()
+            safe_title = safe_title[:100]  # Limit length
+            
+            # Get proper extension
+            ext = output_file.suffix if output_file.suffix else '.mp4'
+            if format_type == 'audio':
+                ext = '.mp3'
+            
+            filename = f"{safe_title}{ext}"
             
             logger.info(f"Downloaded: {filename}")
             

@@ -14,3 +14,4 @@ build/
 *.log
 .DS_Store
 /tmp/
+youtube_cookies.txt
