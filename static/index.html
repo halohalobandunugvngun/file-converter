@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Universal Converter & Downloader</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔄 Universal Converter & Downloader</h1>
+            <p>Convert files and download videos from 1000+ sites</p>
+        </div>
+        
+        <div class="tabs">
+            <button class="tab-btn active" data-tab="converter">📁 File Converter</button>
+            <button class="tab-btn" data-tab="downloader">📥 Video Downloader</button>
+        </div>
+        
+        <!-- File Converter Tab -->
+        <div class="tab-content active" id="converter">
+            <div class="card">
+                <div class="upload-area" id="uploadArea">
+                    <div class="upload-icon">📁</div>
+                    <div class="upload-text">Click to upload or drag & drop files</div>
+                    <div class="upload-hint">Support multiple files at once</div>
+                </div>
+                <input type="file" id="fileInput" multiple>
+                
+                <div class="format-selector">
+                    <label for="outputFormat">Convert to:</label>
+                    <select id="outputFormat">
+                        <option value="">Select output format...</option>
+                    </select>
+                </div>
+                
+                <button class="action-btn" id="convertBtn" disabled>Convert Files</button>
+                
+                <div class="files-list" id="filesList"></div>
+            </div>
+        </div>
+        
+        <!-- Video Downloader Tab -->
+        <div class="tab-content" id="downloader">
+            <div class="card">
+                <div class="url-input-area">
+                    <label for="videoUrl">Video URL:</label>
+                    <input type="text" id="videoUrl" placeholder="Paste YouTube, Twitter, Instagram, TikTok, or any video URL...">
+                    <button class="action-btn" id="fetchInfoBtn">Get Info</button>
+                </div>
+                
+                <div id="videoInfo" style="display: none;">
+                    <div class="video-preview">
+                        <img id="videoThumbnail" src="" alt="Thumbnail">
+                        <div class="video-details">
+                            <h3 id="videoTitle"></h3>
+                            <p id="videoUploader"></p>
+                            <p id="videoDuration"></p>
+                        </div>
+                    </div>
+                    
+                    <div class="download-options">
+                        <div class="format-selector">
+                            <label>Download as:</label>
+                            <select id="downloadType">
+                                <option value="video">Video</option>
+                                <option value="audio">Audio Only (MP3)</option>
+                            </select>
+                        </div>
+                        
+                        <div class="format-selector" id="qualitySelector">
+                            <label>Quality:</label>
+                            <select id="videoQuality">
+                                <option value="best">Best Quality</option>
+                            </select>
+                        </div>
+                        
+                        <button class="action-btn" id="downloadBtn">Download</button>
+                    </div>
+                </div>
+                
+                <div id="downloadStatus" class="status-message"></div>
+                
+                <div class="supported-sites">
+                    <h3>Supported Sites (1000+)</h3>
+                    <div class="site-grid">
+                        <span>YouTube</span>
+                        <span>Twitter/X</span>
+                        <span>Instagram</span>
+                        <span>TikTok</span>
+                        <span>Facebook</span>
+                        <span>Reddit</span>
+                        <span>Vimeo</span>
+                        <span>Dailymotion</span>
+                        <span>Twitch</span>
+                        <span>SoundCloud</span>
+                        <span>And 990+ more...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="/static/script.js"></script>
+</body>
+</html>

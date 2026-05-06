@@ -1,5 +1,5 @@
 from fastapi import FastAPI, File, UploadFile, HTTPException, Form
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 import os
@@ -7,15 +7,17 @@ import subprocess
 import tempfile
 import shutil
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 import uuid
 from PIL import Image
 import logging
+import json
+import yt_dlp
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Universal File Converter")
+app = FastAPI(title="Universal File Converter & Video Downloader")
 
 # CORS middleware
 app.add_middleware(
@@ -425,7 +427,7 @@ async def root():
     <div class="container">
         <div class="header">
             <h1>🔄 Universal File Converter</h1>
-            <p>Convert documents, images, videos, and audio files</p>
+            <p>Convert documents, images, videos, and audio files | <a href="/downloader" style="color: white; text-decoration: underline;">📥 Video Downloader</a></p>
         </div>
         
         <div class="card">
@@ -722,12 +724,344 @@ async def health():
     checks = {
         "libreoffice": shutil.which("libreoffice") is not None,
         "ffmpeg": shutil.which("ffmpeg") is not None,
+        "yt-dlp": shutil.which("yt-dlp") is not None,
     }
     
     return {
         "status": "healthy" if all(checks.values()) else "degraded",
         "dependencies": checks
     }
+
+
+@app.post("/api/download/info")
+async def get_video_info(url: str = Form(...)):
+    """Get video information without downloading"""
+    try:
+        ydl_opts = {
+            'quiet': True,
+            'no_warnings': True,
+            'extract_flat': False,
+        }
+        
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            
+            # Extract available formats
+            formats = []
+            if 'formats' in info:
+                seen = set()
+                for f in info['formats']:
+                    if f.get('vcodec') != 'none' and f.get('acodec') != 'none':  # Has both video and audio
+                        height = f.get('height', 0)
+                        ext = f.get('ext', 'mp4')
+                        filesize = f.get('filesize') or f.get('filesize_approx', 0)
+                        
+                        if height and height not in seen:
+                            seen.add(height)
+                            formats.append({
+                                'quality': f"{height}p",
+                                'ext': ext,
+                                'filesize': filesize,
+                                'format_id': f.get('format_id')
+                            })
+            
+            # Sort by quality
+            formats.sort(key=lambda x: int(x['quality'].replace('p', '')), reverse=True)
+            
+            return {
+                'title': info.get('title', 'Unknown'),
+                'duration': info.get('duration', 0),
+                'thumbnail': info.get('thumbnail', ''),
+                'uploader': info.get('uploader', 'Unknown'),
+                'formats': formats[:10],  # Top 10 qualities
+                'has_audio': any(f.get('acodec') != 'none' for f in info.get('formats', [])),
+            }
+            
+    except Exception as e:
+        logger.error(f"Video info error: {str(e)}")
+        raise HTTPException(400, f"Failed to get video info: {str(e)}")
+
+
+@app.post("/api/download")
+async def download_video(
+    url: str = Form(...),
+    quality: str = Form("best"),
+    format_type: str = Form("video")  # video or audio
+):
+    """Download video from URL"""
+    download_id = str(uuid.uuid4())
+    download_dir = TEMP_DIR / download_id
+    download_dir.mkdir(exist_ok=True)
+    
+    try:
+        logger.info(f"Downloading {format_type} from {url} (quality: {quality})")
+        
+        if format_type == "audio":
+            ydl_opts = {
+                'format': 'bestaudio/best',
+                'outtmpl': str(download_dir / '%(title)s.%(ext)s'),
+                'postprocessors': [{
+                    'key': 'FFmpegExtractAudio',
+                    'preferredcodec': 'mp3',
+                    'preferredquality': '192',
+                }],
+                'quiet': True,
+                'no_warnings': True,
+            }
+        else:
+            # Video download
+            if quality == "best":
+                format_str = 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best'
+            else:
+                # Extract height from quality (e.g., "720p" -> 720)
+                height = quality.replace('p', '')
+                format_str = f'bestvideo[height<={height}][ext=mp4]+bestaudio[ext=m4a]/best[height<={height}][ext=mp4]/best'
+            
+            ydl_opts = {
+                'format': format_str,
+                'outtmpl': str(download_dir / '%(title)s.%(ext)s'),
+                'merge_output_format': 'mp4',
+                'quiet': True,
+                'no_warnings': True,
+            }
+        
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            
+            # Find the downloaded file
+            downloaded_files = list(download_dir.glob('*'))
+            if not downloaded_files:
+                raise Exception("No file was downloaded")
+            
+            output_file = downloaded_files[0]
+            filename = output_file.name
+            
+            logger.info(f"Downloaded: {filename}")
+            
+            return FileResponse(
+                path=output_file,
+                filename=filename,
+                media_type='application/octet-stream',
+                background=None
+            )
+            
+    except Exception as e:
+        logger.error(f"Download error: {str(e)}")
+        raise HTTPException(500, f"Download failed: {str(e)}")
+    finally:
+        # Cleanup will happen later
+        pass
+
+
+@app.get("/downloader", response_class=HTMLResponse)
+async def downloader_page():
+    """Video downloader UI"""
+    return """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Video Downloader</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: Arial; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; padding: 20px; }
+        .container { max-width: 800px; margin: 0 auto; background: white; padding: 40px; border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
+        h1 { color: #667eea; margin-bottom: 30px; }
+        .input-group { margin: 20px 0; }
+        label { display: block; margin-bottom: 8px; font-weight: 600; color: #333; }
+        input, select { width: 100%; padding: 12px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 1em; }
+        input:focus, select:focus { outline: none; border-color: #667eea; }
+        button { width: 100%; padding: 16px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 8px; font-size: 1.1em; font-weight: 600; cursor: pointer; margin: 10px 0; }
+        button:hover { transform: translateY(-2px); box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3); }
+        button:disabled { opacity: 0.6; cursor: not-allowed; }
+        .video-info { display: none; margin: 20px 0; padding: 20px; background: #f8f9fa; border-radius: 8px; }
+        .video-info img { max-width: 100%; border-radius: 8px; margin-bottom: 15px; }
+        .status { padding: 15px; margin: 15px 0; border-radius: 8px; display: none; }
+        .status.success { background: #d4edda; color: #155724; }
+        .status.error { background: #f8d7da; color: #721c24; }
+        .status.info { background: #d1ecf1; color: #0c5460; }
+        .back-link { display: inline-block; margin-bottom: 20px; color: #667eea; text-decoration: none; }
+        .back-link:hover { text-decoration: underline; }
+        .sites { margin-top: 30px; padding-top: 20px; border-top: 2px solid #e0e0e0; }
+        .sites h3 { margin-bottom: 15px; color: #333; }
+        .site-tags { display: flex; flex-wrap: wrap; gap: 10px; }
+        .site-tags span { padding: 6px 12px; background: #e9ecef; border-radius: 6px; font-size: 0.9em; color: #666; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <a href="/" class="back-link">← Back to Home</a>
+        <h1>📥 Video Downloader</h1>
+        
+        <div class="input-group">
+            <label>Video URL:</label>
+            <input type="text" id="videoUrl" placeholder="Paste YouTube, Twitter, Instagram, TikTok, or any video URL...">
+        </div>
+        
+        <button id="fetchBtn">Get Video Info</button>
+        
+        <div id="status" class="status"></div>
+        
+        <div id="videoInfo" class="video-info">
+            <img id="thumbnail" src="" alt="Thumbnail">
+            <h3 id="title"></h3>
+            <p id="uploader"></p>
+            <p id="duration"></p>
+            
+            <div class="input-group">
+                <label>Download as:</label>
+                <select id="downloadType">
+                    <option value="video">Video</option>
+                    <option value="audio">Audio Only (MP3)</option>
+                </select>
+            </div>
+            
+            <div class="input-group" id="qualityGroup">
+                <label>Quality:</label>
+                <select id="quality">
+                    <option value="best">Best Quality</option>
+                </select>
+            </div>
+            
+            <button id="downloadBtn">Download</button>
+        </div>
+        
+        <div class="sites">
+            <h3>Supported Sites (1000+)</h3>
+            <div class="site-tags">
+                <span>YouTube</span>
+                <span>Twitter/X</span>
+                <span>Instagram</span>
+                <span>TikTok</span>
+                <span>Facebook</span>
+                <span>Reddit</span>
+                <span>Vimeo</span>
+                <span>Dailymotion</span>
+                <span>Twitch</span>
+                <span>SoundCloud</span>
+                <span>Bilibili</span>
+                <span>And 990+ more...</span>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        const fetchBtn = document.getElementById('fetchBtn');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const videoUrl = document.getElementById('videoUrl');
+        const videoInfo = document.getElementById('videoInfo');
+        const status = document.getElementById('status');
+        const downloadType = document.getElementById('downloadType');
+        const qualityGroup = document.getElementById('qualityGroup');
+        
+        function showStatus(message, type) {
+            status.textContent = message;
+            status.className = 'status ' + type;
+            status.style.display = 'block';
+        }
+        
+        fetchBtn.addEventListener('click', async () => {
+            const url = videoUrl.value.trim();
+            if (!url) {
+                showStatus('Please enter a video URL', 'error');
+                return;
+            }
+            
+            fetchBtn.disabled = true;
+            fetchBtn.textContent = 'Fetching info...';
+            videoInfo.style.display = 'none';
+            
+            try {
+                const formData = new FormData();
+                formData.append('url', url);
+                
+                const response = await fetch('/api/download/info', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to fetch video info');
+                }
+                
+                const data = await response.json();
+                
+                document.getElementById('thumbnail').src = data.thumbnail;
+                document.getElementById('title').textContent = data.title;
+                document.getElementById('uploader').textContent = 'By: ' + data.uploader;
+                document.getElementById('duration').textContent = 'Duration: ' + Math.floor(data.duration / 60) + ':' + (data.duration % 60).toString().padStart(2, '0');
+                
+                // Populate quality options
+                const qualitySelect = document.getElementById('quality');
+                qualitySelect.innerHTML = '<option value="best">Best Quality</option>';
+                data.formats.forEach(f => {
+                    const option = document.createElement('option');
+                    option.value = f.quality;
+                    option.textContent = f.quality + ' (' + f.ext + ')';
+                    qualitySelect.appendChild(option);
+                });
+                
+                videoInfo.style.display = 'block';
+                showStatus('Video info loaded successfully!', 'success');
+                
+            } catch (error) {
+                showStatus(error.message, 'error');
+            } finally {
+                fetchBtn.disabled = false;
+                fetchBtn.textContent = 'Get Video Info';
+            }
+        });
+        
+        downloadType.addEventListener('change', () => {
+            qualityGroup.style.display = downloadType.value === 'audio' ? 'none' : 'block';
+        });
+        
+        downloadBtn.addEventListener('click', async () => {
+            const url = videoUrl.value.trim();
+            const type = downloadType.value;
+            const quality = document.getElementById('quality').value;
+            
+            downloadBtn.disabled = true;
+            downloadBtn.textContent = 'Downloading...';
+            showStatus('Downloading... This may take a while for large videos.', 'info');
+            
+            try {
+                const formData = new FormData();
+                formData.append('url', url);
+                formData.append('format_type', type);
+                formData.append('quality', quality);
+                
+                const response = await fetch('/api/download', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Download failed');
+                }
+                
+                const blob = await response.blob();
+                const downloadUrl = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = downloadUrl;
+                a.download = response.headers.get('content-disposition')?.split('filename=')[1]?.replace(/"/g, '') || 'video';
+                a.click();
+                window.URL.revokeObjectURL(downloadUrl);
+                
+                showStatus('Download complete!', 'success');
+                
+            } catch (error) {
+                showStatus(error.message, 'error');
+            } finally {
+                downloadBtn.disabled = false;
+                downloadBtn.textContent = 'Download';
+            }
+        });
+    </script>
+</body>
+</html>
+    """
 
 
 if __name__ == "__main__":

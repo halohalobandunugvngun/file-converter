@@ -1,0 +1,15 @@
+[Unit]
+Description=Universal File Converter API
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/projects/file-converter
+Environment="PATH=/root/projects/file-converter/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+ExecStart=/root/projects/file-converter/venv/bin/python /root/projects/file-converter/app.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
