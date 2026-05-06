@@ -803,6 +803,9 @@ async def download_video(
     try:
         logger.info(f"Downloading {format_type} from {url} (quality: {quality})")
         
+        # Check for YouTube cookies
+        cookies_file = Path(__file__).parent / 'youtube_cookies.txt'
+        
         if format_type == "audio":
             ydl_opts = {
                 'format': 'bestaudio/best',
@@ -816,12 +819,12 @@ async def download_video(
                 'no_warnings': True,
                 'extractor_args': {
                     'youtube': {
-                        'player_client': ['android', 'web'],
-                        'skip': ['hls', 'dash']
+                        'player_client': ['android_creator'],
                     }
                 },
-                'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             }
+            if cookies_file.exists():
+                ydl_opts['cookiefile'] = str(cookies_file)
         else:
             # Video download
             if quality == "best":
@@ -839,12 +842,12 @@ async def download_video(
                 'no_warnings': True,
                 'extractor_args': {
                     'youtube': {
-                        'player_client': ['android', 'web'],
-                        'skip': ['hls', 'dash']
+                        'player_client': ['android_creator'],
                     }
                 },
-                'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             }
+            if cookies_file.exists():
+                ydl_opts['cookiefile'] = str(cookies_file)
         
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
