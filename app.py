@@ -874,10 +874,16 @@ async def download_video(
             
             logger.info(f"Downloaded: {filename}")
             
+            # Set proper headers for download
+            headers = {
+                'Content-Disposition': f'attachment; filename="{filename}"'
+            }
+            
             return FileResponse(
                 path=output_file,
                 filename=filename,
                 media_type='application/octet-stream',
+                headers=headers,
                 background=None
             )
             
