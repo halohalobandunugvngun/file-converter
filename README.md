@@ -1,16 +1,21 @@
-# Universal File Converter
+# Universal File Converter & Video Downloader
 
-A self-hosted web application for converting files between multiple formats.
+A self-hosted web application for converting files and downloading videos from 1000+ sites.
 
 ## Features
 
-- 📄 **Documents**: DOCX, XLSX, PPTX → PDF, TXT, HTML, CSV
-- 🖼️ **Images**: PNG ↔ JPG ↔ WEBP ↔ BMP ↔ GIF ↔ ICO
-- 🎬 **Videos**: MP4, AVI, MKV, WEBM, MOV, FLV (+ extract audio)
-- 🎵 **Audio**: MP3 ↔ WAV ↔ OGG ↔ FLAC ↔ M4A ↔ AAC
-- 📦 **Batch Processing**: Upload and convert multiple files at once
-- 🎨 **Clean UI**: Modern, responsive web interface
-- 🚀 **Fast**: Processes files one by one with progress tracking
+### 📄 File Converter
+- **Documents**: DOCX, XLSX, PPTX → PDF, TXT, HTML, CSV
+- **Images**: PNG ↔ JPG ↔ WEBP ↔ BMP ↔ GIF ↔ ICO
+- **Videos**: MP4, AVI, MKV, WEBM, MOV, FLV (+ extract audio)
+- **Audio**: MP3 ↔ WAV ↔ OGG ↔ FLAC ↔ M4A ↔ AAC
+- **Batch Processing**: Upload and convert multiple files at once
+
+### 📥 Video Downloader
+- **1000+ Sites**: YouTube, Twitter/X, Instagram, TikTok, Facebook, Reddit, Vimeo, Twitch, and more
+- **Quality Selection**: Choose from available video qualities
+- **Audio Extraction**: Download as MP3 audio only
+- **Fast Downloads**: Powered by yt-dlp
 
 ## Tech Stack
 
@@ -18,6 +23,7 @@ A self-hosted web application for converting files between multiple formats.
 - **Document Conversion**: LibreOffice (headless)
 - **Image Processing**: Pillow
 - **Media Conversion**: FFmpeg
+- **Video Downloader**: yt-dlp
 - **Frontend**: Vanilla JavaScript (no frameworks)
 
 ## Installation
@@ -124,6 +130,20 @@ Convert a file
   - `file`: File to convert
   - `output_format`: Target format (e.g., "pdf", "mp3")
 - **Returns**: Converted file
+
+### `POST /api/download/info`
+Get video information without downloading
+- **Form Data**:
+  - `url`: Video URL
+- **Returns**: JSON with title, duration, thumbnail, available formats
+
+### `POST /api/download`
+Download video from URL
+- **Form Data**:
+  - `url`: Video URL
+  - `format_type`: "video" or "audio"
+  - `quality`: Quality (e.g., "720p", "best")
+- **Returns**: Downloaded video/audio file
 
 ### `GET /health`
 Health check with dependency status
