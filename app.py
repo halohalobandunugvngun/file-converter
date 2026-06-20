@@ -29,7 +29,9 @@ app.add_middleware(
 )
 
 # Create temp directory for conversions
-TEMP_DIR = Path("/tmp/file-converter")
+import tempfile
+
+TEMP_DIR = Path(tempfile.gettempdir()) / "file-converter"
 TEMP_DIR.mkdir(exist_ok=True)
 
 # Supported conversions
