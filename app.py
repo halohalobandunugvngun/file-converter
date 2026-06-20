@@ -737,18 +737,20 @@ async def health():
 async def get_video_info(url: str = Form(...)):
     """Get video information without downloading"""
     try:
+        cookies_file = Path(__file__).parent / 'cookies.txt'
         ydl_opts = {
             'quiet': True,
             'no_warnings': True,
             'extract_flat': False,
             'extractor_args': {
                 'youtube': {
-                    'player_client': ['android', 'web'],
-                    'skip': ['hls', 'dash']
+                    'player_client': ['web'],
                 }
             },
             'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         }
+        if cookies_file.exists():
+            ydl_opts['cookiefile'] = str(cookies_file)
         
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
@@ -804,7 +806,7 @@ async def download_video(
         logger.info(f"Downloading {format_type} from {url} (quality: {quality})")
         
         # Check for YouTube cookies
-        cookies_file = Path(__file__).parent / 'youtube_cookies.txt'
+        cookies_file = Path(__file__).parent / 'cookies.txt'
         
         if format_type == "audio":
             ydl_opts = {
