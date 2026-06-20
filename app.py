@@ -734,6 +734,22 @@ async def health():
         "dependencies": checks
     }
 
+def extract_info_with_fallback(ydl_opts: dict, url: str, download: bool = False):
+    """Attempt to extract info (and optionally download) using the given options.
+    If it fails and cookies are configured, retries without cookies.
+    """
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            return ydl.extract_info(url, download=download)
+    except Exception as e:
+        if 'cookiefile' in ydl_opts:
+            logger.warning(f"Failed with cookies, retrying without cookies: {str(e)}")
+            ydl_opts_no_cookies = ydl_opts.copy()
+            ydl_opts_no_cookies.pop('cookiefile', None)
+            with yt_dlp.YoutubeDL(ydl_opts_no_cookies) as ydl:
+                return ydl.extract_info(url, download=download)
+        raise e
+
 
 @app.post("/api/download/info")
 async def get_video_info(url: str = Form(...)):
@@ -744,49 +760,43 @@ async def get_video_info(url: str = Form(...)):
             'quiet': True,
             'no_warnings': True,
             'extract_flat': False,
-            'extractor_args': {
-                'youtube': {
-                    'player_client': ['web'],
-                }
-            },
             'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         }
         if cookies_file.exists():
             ydl_opts['cookiefile'] = str(cookies_file)
         
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-            
-            # Extract available formats
-            formats = []
-            if 'formats' in info:
-                seen = set()
-                for f in info['formats']:
-                    if f.get('vcodec') != 'none' and f.get('acodec') != 'none':  # Has both video and audio
-                        height = f.get('height', 0)
-                        ext = f.get('ext', 'mp4')
-                        filesize = f.get('filesize') or f.get('filesize_approx', 0)
-                        
-                        if height and height not in seen:
-                            seen.add(height)
-                            formats.append({
-                                'quality': f"{height}p",
-                                'ext': ext,
-                                'filesize': filesize,
-                                'format_id': f.get('format_id')
-                            })
-            
-            # Sort by quality
-            formats.sort(key=lambda x: int(x['quality'].replace('p', '')), reverse=True)
-            
-            return {
-                'title': info.get('title', 'Unknown'),
-                'duration': info.get('duration', 0),
-                'thumbnail': info.get('thumbnail', ''),
-                'uploader': info.get('uploader', 'Unknown'),
-                'formats': formats[:10],  # Top 10 qualities
-                'has_audio': any(f.get('acodec') != 'none' for f in info.get('formats', [])),
-            }
+        info = extract_info_with_fallback(ydl_opts, url, download=False)
+        
+        # Extract available formats
+        formats = []
+        if 'formats' in info:
+            seen = set()
+            for f in info['formats']:
+                if f.get('vcodec') != 'none' and f.get('acodec') != 'none':  # Has both video and audio
+                    height = f.get('height', 0)
+                    ext = f.get('ext', 'mp4')
+                    filesize = f.get('filesize') or f.get('filesize_approx', 0)
+                    
+                    if height and height not in seen:
+                        seen.add(height)
+                        formats.append({
+                            'quality': f"{height}p",
+                            'ext': ext,
+                            'filesize': filesize,
+                            'format_id': f.get('format_id')
+                        })
+        
+        # Sort by quality
+        formats.sort(key=lambda x: int(x['quality'].replace('p', '')), reverse=True)
+        
+        return {
+            'title': info.get('title', 'Unknown'),
+            'duration': info.get('duration', 0),
+            'thumbnail': info.get('thumbnail', ''),
+            'uploader': info.get('uploader', 'Unknown'),
+            'formats': formats[:10],  # Top 10 qualities
+            'has_audio': any(f.get('acodec') != 'none' for f in info.get('formats', [])),
+        }
             
     except Exception as e:
         logger.error(f"Video info error: {str(e)}")
@@ -821,11 +831,6 @@ async def download_video(
                 }],
                 'quiet': True,
                 'no_warnings': True,
-                'extractor_args': {
-                    'youtube': {
-                        'player_client': ['android_creator'],
-                    }
-                },
             }
             if cookies_file.exists():
                 ydl_opts['cookiefile'] = str(cookies_file)
@@ -844,52 +849,46 @@ async def download_video(
                 'merge_output_format': 'mp4',
                 'quiet': True,
                 'no_warnings': True,
-                'extractor_args': {
-                    'youtube': {
-                        'player_client': ['android_creator'],
-                    }
-                },
             }
             if cookies_file.exists():
                 ydl_opts['cookiefile'] = str(cookies_file)
         
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            
-            # Find the downloaded file
-            downloaded_files = list(download_dir.glob('*'))
-            if not downloaded_files:
-                raise Exception("No file was downloaded")
-            
-            output_file = downloaded_files[0]
-            
-            # Generate proper filename with extension
-            title = info.get('title', 'video')
-            # Sanitize title for filename
-            safe_title = "".join(c for c in title if c.isalnum() or c in (' ', '-', '_')).strip()
-            safe_title = safe_title[:100]  # Limit length
-            
-            # Get proper extension
-            ext = output_file.suffix if output_file.suffix else '.mp4'
-            if format_type == 'audio':
-                ext = '.mp3'
-            
-            filename = f"{safe_title}{ext}"
-            
-            logger.info(f"Downloaded: {filename}")
-            
-            # Set proper headers for download
-            headers = {
-                'Content-Disposition': f'attachment; filename="{filename}"'
-            }
-            
-            return FileResponse(
-                path=output_file,
-                filename=filename,
-                media_type='application/octet-stream',
-                headers=headers,
-                background=None
-            )
+        info = extract_info_with_fallback(ydl_opts, url, download=True)
+        
+        # Find the downloaded file
+        downloaded_files = list(download_dir.glob('*'))
+        if not downloaded_files:
+            raise Exception("No file was downloaded")
+        
+        output_file = downloaded_files[0]
+        
+        # Generate proper filename with extension
+        title = info.get('title', 'video')
+        # Sanitize title for filename
+        safe_title = "".join(c for c in title if c.isalnum() or c in (' ', '-', '_')).strip()
+        safe_title = safe_title[:100]  # Limit length
+        
+        # Get proper extension
+        ext = output_file.suffix if output_file.suffix else '.mp4'
+        if format_type == 'audio':
+            ext = '.mp3'
+        
+        filename = f"{safe_title}{ext}"
+        
+        logger.info(f"Downloaded: {filename}")
+        
+        # Set proper headers for download
+        headers = {
+            'Content-Disposition': f'attachment; filename="{filename}"'
+        }
+        
+        return FileResponse(
+            path=output_file,
+            filename=filename,
+            media_type='application/octet-stream',
+            headers=headers,
+            background=None
+        )
             
     except Exception as e:
         logger.error(f"Download error: {str(e)}")
